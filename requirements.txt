@@ -1,0 +1,28 @@
+# Requirements for running a simple retrieval‑augmented generation (RAG)
+# system with MLX on Apple silicon.
+#
+# This list includes:
+#  • **MLX** and **mlx‑lm** for running and loading quantized LLMs from the
+#    Hugging Face *mlx‑community* repository.
+#  • **LangChain**, its community extensions and integrations to build chains,
+#    connect Hugging Face models, and split text into chunks.  We omit Chroma
+#    here because we use FAISS as the vector store.
+#  • **Sentence Transformers** for generating dense embeddings for the
+#    document chunks.
+#  • **PyMuPDF** (pymupdf) for loading and parsing PDF documents.  We still
+#    include **pypdf** for basic PDF operations and compatibility.
+#  • **FAISS** for similarity search in the RAG pipeline (replacing Chroma).
+#
+# Versions are pinned to specific releases as of October 3, 2025 to ensure
+# compatibility with Python 3.13 and stability across installations.
+
+mlx==0.29.2
+mlx-lm==0.28.2
+langchain==0.3.27
+langchain-community==0.3.30
+langchain-huggingface==0.3.1
+langchain-text-splitters==0.3.11
+sentence-transformers==5.1.1
+pymupdf==1.26.4
+faiss-cpu==1.12.0
+pypdf==6.1.1
