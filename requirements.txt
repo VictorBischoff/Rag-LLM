@@ -35,6 +35,11 @@ faiss-cpu==1.12.0
 pymupdf==1.26.4
 pypdf==6.1.1
 
+# Web API dependencies
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+
 # Additional utilities for optimization
 typing-extensions==4.12.2
 pathlib2==2.3.7; python_version < "3.4"
