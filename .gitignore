@@ -246,6 +246,11 @@ $RECYCLE.BIN/
 .cache/
 models/
 checkpoints/
+cache/*
+!cache/.gitignore
+
+# Tooling caches
+.ruff_cache/
 
 # Jupyter notebook checkpoints
 .ipynb_checkpoints/
