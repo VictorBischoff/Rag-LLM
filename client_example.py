@@ -16,7 +16,7 @@ from pathlib import Path
 # API base URL
 BASE_URL = "http://localhost:8000"
 
-def upload_pdf(pdf_path: str) -> str:
+def upload_pdf(pdf_path: str) -> str | None:
     """
     Upload a PDF file to the API.
     
@@ -47,7 +47,7 @@ def upload_pdf(pdf_path: str) -> str:
         print(f"   Error: {response.text}")
         return None
 
-def query_document(question: str, session_id: str = None) -> str:
+def query_document(question: str, session_id: str | None = None) -> str | None:
     """
     Query the document using the API.
     

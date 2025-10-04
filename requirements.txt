@@ -43,3 +43,6 @@ python-multipart==0.0.20
 # Additional utilities for optimization
 typing-extensions==4.12.2
 pathlib2==2.3.7; python_version < "3.4"
+
+# GUI dependencies
+streamlit==1.39.0

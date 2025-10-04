@@ -27,9 +27,14 @@ python api.py
 
 The API will be available at `http://localhost:8000`
 
-### 3. View API Documentation
+### 3. Start the Web Interface
 
-Visit `http://localhost:8000/docs` for interactive API documentation.
+Run the Streamlit UI in a separate terminal:
+```bash
+streamlit run ui.py
+```
+
+The web interface will be available at `http://localhost:8501`, and the API documentation at `http://localhost:8000/docs`.
 
 ## API Endpoints
 
@@ -83,9 +88,26 @@ Response:
 }
 ```
 
+## Using the Web Interface
+
+The easiest way to interact with the RAG system is through the web interface:
+
+1. **Start the API server**: `python api.py`
+2. **Start the web interface**: `streamlit run ui.py` (in a separate terminal)
+3. **Open your browser**: Visit `http://localhost:8501`
+4. **Upload a PDF**: Use the file upload widget to select your PDF
+5. **Ask questions**: Type your questions in the text box and click "Ask Question"
+
+The web interface provides:
+- PDF upload functionality
+- Interactive question-answering
+- Session management
+- Real-time API health monitoring
+- Clean, user-friendly design
+
 ## Using the Client Script
 
-A Python client script is provided for easy testing:
+A Python client script is also provided for programmatic testing:
 
 ```bash
 # Upload a PDF and start interactive mode
@@ -114,7 +136,7 @@ The API supports multiple concurrent document sessions:
 
 The API uses the following default settings:
 
-- **Model**: `mlx-community/granite-4.0-h-tiny-6bit-MLX`
+- **Model**: `mlx-community/granite-4.0-h-tiny-4bit`
 - **Chunk Size**: 1500 characters
 - **Chunk Overlap**: 100 characters
 - **Max Tokens**: 500

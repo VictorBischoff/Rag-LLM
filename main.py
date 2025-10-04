@@ -1,6 +1,7 @@
 import os
 import pickle
 import time
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -19,15 +20,21 @@ class OptimizedRAGSystem:
     """Optimized RAG system using MLX best practices."""
     
     def __init__(self, 
-                 pdf_path: str = "./test.pdf",
-                 model_id: str = "mlx-community/granite-4.0-h-tiny-6bit-MLX",
+                 pdf_paths: Optional[List[str]] = None,
+                 model_id: str = "mlx-community/granite-4.0-h-tiny-4bit",
                  cache_dir: str = "./cache",
                  chunk_size: int = 1500,
                  chunk_overlap: int = 100,
                  max_tokens: int = 500,
                  temperature: float = 0.1):
         """Initialize the RAG system with optimized settings."""
-        self.pdf_path = pdf_path
+        # Handle backward compatibility - if single pdf_path is provided, convert to list
+        if pdf_paths is None:
+            pdf_paths = ["./test.pdf"]
+        elif isinstance(pdf_paths, str):
+            pdf_paths = [pdf_paths]
+        
+        self.pdf_paths = pdf_paths
         self.model_id = model_id
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
@@ -46,6 +53,18 @@ class OptimizedRAGSystem:
         # Performance tracking
         self.timing_stats = {}
         
+        # Setup logging
+        self.logger = logging.getLogger(f"RAGSystem_{id(self)}")
+        self.logger.setLevel(logging.DEBUG)
+        
+        # Create console handler if not already exists
+        if not self.logger.handlers:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+        
     def _time_operation(self, operation_name: str):
         """Context manager for timing operations."""
         class TimingContext:
@@ -62,13 +81,33 @@ class OptimizedRAGSystem:
                 if self.start_time is not None:
                     elapsed = time.perf_counter() - self.start_time
                     self.parent.timing_stats[self.name] = elapsed
-                    print(f"⏱️  {self.name}: {elapsed:.2f}s")
+                    self.parent.logger.info(f"⏱️  {self.name}: {elapsed:.2f}s")
+                    print(f"⏱️  {self.name}: {elapsed:.2f}s")  # Keep print for backward compatibility
         
         return TimingContext(self, operation_name)
     
+    def _generate_cache_key(self) -> str:
+        """Generate a cache key based on PDF paths and their modification times."""
+        import hashlib
+        
+        # Create a string with all PDF paths and their modification times
+        cache_data = []
+        for pdf_path in sorted(self.pdf_paths):  # Sort for consistent ordering
+            if os.path.exists(pdf_path):
+                mtime = os.path.getmtime(pdf_path)
+                cache_data.append(f"{pdf_path}:{mtime}")
+            else:
+                cache_data.append(f"{pdf_path}:missing")
+        
+        # Create hash of the cache data
+        cache_string = "|".join(cache_data)
+        return hashlib.md5(cache_string.encode()).hexdigest()[:16]
+    
     def _load_documents(self) -> List[Document]:
         """Load and chunk documents with caching."""
-        cache_file = self.cache_dir / "documents.pkl"
+        # Create cache key based on all PDF paths and their modification times
+        cache_key = self._generate_cache_key()
+        cache_file = self.cache_dir / f"documents_{cache_key}.pkl"
         
         if cache_file.exists():
             print("📁 Loading documents from cache...")
@@ -78,25 +117,40 @@ class OptimizedRAGSystem:
                 print(f"✅ Loaded {len(documents)} cached document chunks")
                 return documents
         
-        print("📄 Loading and processing PDF...")
+        print(f"📄 Loading and processing {len(self.pdf_paths)} PDF file(s)...")
         with self._time_operation("Document Processing"):
-            # Load PDF
-            if not os.path.exists(self.pdf_path):
-                raise FileNotFoundError(f"PDF file not found: {self.pdf_path}")
+            all_documents = []
             
-            document = PyMuPDFLoader(self.pdf_path).load()
-            if not document:
-                raise RuntimeError("No documents loaded! Check the PDF path.")
+            for i, pdf_path in enumerate(self.pdf_paths):
+                if not os.path.exists(pdf_path):
+                    raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+                
+                print(f"📄 Processing PDF {i+1}/{len(self.pdf_paths)}: {os.path.basename(pdf_path)}")
+                document = PyMuPDFLoader(pdf_path).load()
+                if not document:
+                    print(f"⚠️  Warning: No content loaded from {pdf_path}")
+                    continue
+                
+                # Add source information to each document
+                for doc in document:
+                    doc.metadata['source_file'] = os.path.basename(pdf_path)
+                    doc.metadata['source_path'] = pdf_path
+                
+                all_documents.extend(document)
+                print(f"📊 Loaded {len(document)} document(s) from {os.path.basename(pdf_path)}")
             
-            print(f"📊 Loaded {len(document)} document(s)")
-            print(f"📏 First document length: {len(document[0].page_content)} chars")
+            if not all_documents:
+                raise RuntimeError("No documents loaded from any PDF files!")
+            
+            print(f"📏 Total documents loaded: {len(all_documents)}")
+            print(f"📏 First document length: {len(all_documents[0].page_content)} chars")
             
             # Split documents
             splitter = RecursiveCharacterTextSplitter(
                 chunk_size=self.chunk_size, 
                 chunk_overlap=self.chunk_overlap
             )
-            documents = splitter.split_documents(document)
+            documents = splitter.split_documents(all_documents)
             
             if not documents:
                 raise RuntimeError("No chunks created! Adjust your splitter settings.")
@@ -112,7 +166,8 @@ class OptimizedRAGSystem:
     
     def _setup_embeddings_and_vectorstore(self):
         """Setup embeddings and vector store with caching."""
-        vectorstore_cache = self.cache_dir / "vectorstore.pkl"
+        cache_key = self._generate_cache_key()
+        vectorstore_cache = self.cache_dir / f"vectorstore_{cache_key}.pkl"
         
         if vectorstore_cache.exists():
             print("🔍 Loading vector store from cache...")
@@ -147,7 +202,8 @@ class OptimizedRAGSystem:
     
     def _setup_llm_and_chain(self):
         """Setup MLX LLM with optimized parameters."""
-        print("🤖 Loading MLX model...")
+        self.logger.info("🤖 Loading MLX model...")
+        print("🤖 Loading MLX model...")  # Keep print for backward compatibility
         with self._time_operation("MLX Model Loading"):
             # Optimize MLX model loading
             self.llm = MLXPipeline.from_model_id(
@@ -159,6 +215,8 @@ class OptimizedRAGSystem:
                     "repetition_context_size": 20,
                 },
             )
+            self.logger.info(f"✅ MLX model loaded: {self.model_id}")
+            self.logger.debug(f"Model config - max_tokens: {self.max_tokens}, temp: {self.temperature}")
         
         print("🔗 Setting up RAG chain...")
         with self._time_operation("Chain Setup"):
@@ -208,11 +266,15 @@ Answer:"""
         if not self.chain:
             raise RuntimeError("RAG system not initialized. Call initialize() first.")
         
-        print(f"\n❓ Question: {question}")
+        self.logger.info(f"❓ Processing question: {question}")
+        print(f"\n❓ Question: {question}")  # Keep print for backward compatibility
+        
         with self._time_operation("Query Processing"):
             response = self.chain.invoke({"input": question})
         
-        print(f"✅ Answer: {response['answer']}")
+        self.logger.info(f"✅ Generated answer (length: {len(response['answer'])} chars)")
+        self.logger.debug(f"Full answer: {response['answer']}")
+        print(f"✅ Answer: {response['answer']}")  # Keep print for backward compatibility
         return response
     
     def interactive_mode(self):
@@ -258,8 +320,8 @@ def main():
     try:
         # Initialize the RAG system
         rag = OptimizedRAGSystem(
-            pdf_path="./test.pdf",
-            model_id="mlx-community/granite-4.0-h-tiny-6bit-MLX",
+            pdf_paths=["./test.pdf"],
+            model_id="mlx-community/granite-4.0-h-tiny-4bit",
             cache_dir="./cache",
             chunk_size=1500,
             chunk_overlap=100,

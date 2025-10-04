@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import uuid
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
@@ -71,23 +71,58 @@ async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "active_sessions": len(active_rag_systems)}
 
+@app.get("/logs/{session_id}")
+async def get_session_logs(session_id: str):
+    """Get logs for a specific session."""
+    if session_id not in active_rag_systems:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found"
+        )
+    
+    rag_system = active_rag_systems[session_id]
+    
+    # Get timing stats and basic info
+    logs = {
+        "session_id": session_id,
+        "timing_stats": rag_system.timing_stats,
+        "model_id": rag_system.model_id,
+        "document_count": len(rag_system.documents) if rag_system.documents else 0,
+        "cache_dir": rag_system.cache_dir,
+        "system_config": {
+            "chunk_size": rag_system.chunk_size,
+            "chunk_overlap": rag_system.chunk_overlap,
+            "max_tokens": rag_system.max_tokens,
+            "temperature": rag_system.temperature
+        }
+    }
+    
+    return logs
+
 @app.post("/upload", response_model=UploadResponse)
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdfs(files: List[UploadFile] = File(...)):
     """
-    Upload a PDF file and initialize a RAG system for it.
+    Upload one or more PDF files and initialize a RAG system for them.
     
     Args:
-        file: PDF file to upload
+        files: List of PDF files to upload
         
     Returns:
         UploadResponse with session_id and processing info
     """
-    # Validate file type
-    if not file.filename.lower().endswith('.pdf'):
+    if not files:
         raise HTTPException(
             status_code=400, 
-            detail="Only PDF files are supported"
+            detail="At least one file must be uploaded"
         )
+    
+    # Validate file types
+    for file in files:
+        if not file.filename or not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Only PDF files are supported. Found: {file.filename}"
+            )
     
     # Generate unique session ID
     session_id = str(uuid.uuid4())
@@ -96,15 +131,19 @@ async def upload_pdf(file: UploadFile = File(...)):
         # Create temporary directory for this session
         temp_dir = Path(tempfile.mkdtemp(prefix=f"rag_session_{session_id}_"))
         
-        # Save uploaded file
-        pdf_path = temp_dir / file.filename
-        with open(pdf_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Save uploaded files
+        pdf_paths = []
+        for file in files:
+            if file.filename:
+                pdf_path = temp_dir / file.filename
+                with open(pdf_path, "wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
+                pdf_paths.append(str(pdf_path))
         
-        # Initialize RAG system
+        # Initialize RAG system with multiple PDFs
         rag_system = OptimizedRAGSystem(
-            pdf_path=str(pdf_path),
-            model_id="mlx-community/granite-4.0-h-tiny-6bit-MLX",
+            pdf_paths=pdf_paths,
+            model_id="mlx-community/granite-4.0-h-tiny-4bit",
             cache_dir=str(temp_dir / "cache"),
             chunk_size=1500,
             chunk_overlap=100,
@@ -112,7 +151,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             temperature=0.1
         )
         
-        # Initialize the system (this processes the PDF)
+        # Initialize the system (this processes the PDFs)
         rag_system.initialize()
         
         # Store the RAG system
@@ -121,10 +160,13 @@ async def upload_pdf(file: UploadFile = File(...)):
         # Get processing time from the system
         total_time = sum(rag_system.timing_stats.values())
         
+        # Count total chunks from all documents
+        total_chunks = len(rag_system.documents) if rag_system.documents else 0
+        
         return UploadResponse(
-            message="PDF uploaded and processed successfully",
+            message=f"Successfully uploaded and processed {len(files)} PDF file(s)",
             session_id=session_id,
-            document_count=len(rag_system.documents) if rag_system.documents else 0,
+            document_count=total_chunks,
             processing_time=total_time
         )
         
@@ -134,7 +176,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             del active_rag_systems[session_id]
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing PDF: {str(e)}"
+            detail=f"Error processing PDFs: {str(e)}"
         )
 
 @app.post("/query", response_model=QueryResponse)
@@ -250,11 +292,13 @@ async def delete_all_sessions():
             detail=f"Error deleting sessions: {str(e)}"
         )
 
+# Streamlit UI is run separately with: streamlit run ui.py
+
 if __name__ == "__main__":
     uvicorn.run(
         "api:app",
         host="0.0.0.0",
         port=8000,
         reload=True,
-        log_level="info"
+        log_level="debug"  # Changed to debug for more verbose logging
     )
